@@ -7,6 +7,7 @@ import argparse
 # Define possible modes of operation
 modes = ["crimeType", "outcome"]
 
+# Command Line Argument Parser
 parser = argparse.ArgumentParser()
 parser.add_argument("data", type=str, help="the path to police data dir")
 parser.add_argument("longitude", type=float, help="longitude of central point")
@@ -41,7 +42,7 @@ if args.load:
     street.drop()
 
     # Open file with context manager
-    with open("data/2017-01/2017-01-metropolitan-street.csv") as csv_file:
+    with open(f"{args.data}/2017-01/2017-01-metropolitan-street.csv") as csv_file:
         # Use dict reader to read each line from csv and auto use headers
         reader = list(csv.DictReader(csv_file))
 
@@ -107,10 +108,11 @@ total_documents = street.aggregate(
     ]
 )
 
+# Extract total docs count
 for doc in total_documents:
     total_count = doc["count"]
 
-# Define pipeline for aggregating data getting data from dictionaries using input type key
+# Define pipeline for aggregating and calculating percentages
 geo_aggregation_pipeline = [
     {
         "$geoNear": {
@@ -134,5 +136,3 @@ geo_aggregation_pipeline = [
 # Run aggregation and display results
 result = street.aggregate(geo_aggregation_pipeline)
 pprint(list(result))
-
-# pprint(street.find_one())
