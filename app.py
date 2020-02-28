@@ -1,8 +1,39 @@
+# Example Usage
+#
+# python police.py data 0.146181 51.57363 --mode 1 --distance 1000
+
+
 import pymongo
 from pymongo import MongoClient
 from pprint import pprint
 import csv
-import sys
+import argparse
+
+# Define possible modes of operation
+modes = ["crimeType", "outcome"]
+
+parser = argparse.ArgumentParser()
+parser.add_argument("data", type=str, help="the path to police data dir")
+parser.add_argument("longitude", type=float, help="longitude of central point")
+parser.add_argument("latitude", type=float, help="latitude of central point")
+parser.add_argument(
+    "--mode",
+    action="store",
+    type=str,
+    choices=modes,
+    default=modes[0],
+    help=f"set mode of aggregation, available options are {modes}",
+    metavar="",
+)
+parser.add_argument(
+    "--distance",
+    type=int,
+    help="distance around point to include data in metres",
+    default=1000,
+    metavar="",
+)
+
+args = parser.parse_args()
 
 # Set up mongo connection
 client = MongoClient()
@@ -13,19 +44,18 @@ street = db.street
 street.drop()
 
 # Input variables
-input_type = "crimeType"
-maxDistance = 5000
-data_dir = "data"
+longitude, latitude = 0.140634, 51.583427
 
 # Open file with context manager
-with open("data/met/2017-01/2017-01-metropolitan-street.csv") as csv_file:
-    # Use dict reader to read each line from csv
+with open("data/2017-01/2017-01-metropolitan-street.csv") as csv_file:
+    # Use dict reader to read each line from csv and auto use headers
     reader = list(csv.DictReader(csv_file))
 
     street_list = []
 
     # Construct data model from csv data using geospatial constructs
     for row in reader:
+        # Catch bad lat/lng data to prevent indexing failures
         try:
             long = float(row["Longitude"])
         except ValueError as ve:
@@ -51,44 +81,53 @@ with open("data/met/2017-01/2017-01-metropolitan-street.csv") as csv_file:
         }
         street_list.append(data)
 
+    # Insert bulk for speed
     street.insert_many(street_list)
+
+    # Create Geospatial index for aggregation
     street.create_index([("location", pymongo.GEOSPHERE)])
 
+# Dictionary containing options for aggregation pipeline
 group_by = {
     "crimeType": {"crimeType": "$crimeType"},
-    "outcome:": {"lastOutcomeCategory": "$lastOutcomeCategory"},
+    "outcome": {"lastOutcomeCategory": "$lastOutcomeCategory"},
 }
 
-check_exists = {}
+check_exists = {
+    "crimeType": "crimeType",
+    "outcome": "lastOutcomeCategory"
+}
 
-# Define pipeline for aggregating data
-aggregation_pipeline = [
-    {"$match": {"crimeType": {"$exists": True, "$ne": ""}}},
-    {"$match": {"lastOutcomeCategory": {"$exists": True, "$ne": ""}}},
+# Get Total Documents
+total_documents = street.aggregate([
     {
-        "$group": {
-            "_id": {
-                "crimeType": "$crimeType",
-                "lastOutcomeCategory": "$lastOutcomeCategory",
-            },
-            "count": {"$sum": 1},
-        }
+        "$geoNear": {
+            "near": {"type": "Point", "coordinates": [args.longitude, args.latitude]},
+            "spherical": True,
+            "distanceField": "calcDistance",
+            "maxDistance": args.distance,
+        },
     },
-    {"$sort": {"count": -1}},
-]
+    {"$group": {"_id": None, "count": {"$sum": 1}}}
+])
 
+for doc in total_documents:
+    total_count = doc['count']
+
+# Define pipeline for aggregating data getting data from dictionaries using input type key
 geo_aggregation_pipeline = [
     {
         "$geoNear": {
-            "near": {"type": "Point", "coordinates": [0.140634, 51.583427]},
+            "near": {"type": "Point", "coordinates": [args.longitude, args.latitude]},
             "spherical": True,
             "distanceField": "calcDistance",
-            "maxDistance": maxDistance,
+            "maxDistance": args.distance,
         }
     },
-    {"$match": {input_type: {"$exists": True, "$ne": ""}}},
-    {"$group": {"_id": group_by.get(input_type), "count": {"$sum": 1}}},
+    {"$match": {check_exists.get(args.mode): {"$exists": True, "$ne": ""}}},
+    {"$group": {"_id": group_by.get(args.mode), "count": {"$sum": 1}}},
     {"$sort": {"count": -1}},
+
 ]
 
 # Run aggregation and display results
