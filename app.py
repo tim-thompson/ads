@@ -93,26 +93,28 @@ group_by = {
     "outcome": {"lastOutcomeCategory": "$lastOutcomeCategory"},
 }
 
-check_exists = {
-    "crimeType": "crimeType",
-    "outcome": "lastOutcomeCategory"
-}
+check_exists = {"crimeType": "crimeType", "outcome": "lastOutcomeCategory"}
 
 # Get Total Documents
-total_documents = street.aggregate([
-    {
-        "$geoNear": {
-            "near": {"type": "Point", "coordinates": [args.longitude, args.latitude]},
-            "spherical": True,
-            "distanceField": "calcDistance",
-            "maxDistance": args.distance,
+total_documents = street.aggregate(
+    [
+        {
+            "$geoNear": {
+                "near": {
+                    "type": "Point",
+                    "coordinates": [args.longitude, args.latitude],
+                },
+                "spherical": True,
+                "distanceField": "calcDistance",
+                "maxDistance": args.distance,
+            },
         },
-    },
-    {"$group": {"_id": None, "count": {"$sum": 1}}}
-])
+        {"$group": {"_id": None, "count": {"$sum": 1}}},
+    ]
+)
 
 for doc in total_documents:
-    total_count = doc['count']
+    total_count = doc["count"]
 
 # Define pipeline for aggregating data getting data from dictionaries using input type key
 geo_aggregation_pipeline = [
@@ -127,7 +129,7 @@ geo_aggregation_pipeline = [
     {"$match": {check_exists.get(args.mode): {"$exists": True, "$ne": ""}}},
     {"$group": {"_id": group_by.get(args.mode), "count": {"$sum": 1}}},
     {"$sort": {"count": -1}},
-
+    {"$project": {"count": 1, "percentage": {"$multiply": [{"$divide": [100, total_count]}, "$count"]}}}
 ]
 
 # Run aggregation and display results
